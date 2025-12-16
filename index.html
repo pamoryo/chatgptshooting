@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>味方(a) vs 敵(b)</title>
+  <style>
+    :root{
+      --bg:#0b0b10;
+      --panel:#151525;
+      --text:#e9e9f2;
+      --muted:#a9a9c0;
+      --good:#57d38c;
+      --bad:#ff5a6a;
+      --accent:#7aa7ff;
+    }
+    html,body{height:100%; margin:0; font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; background:var(--bg); color:var(--text);}
+    .wrap{
+      min-height:100%;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:10px;
+      padding:12px 12px env(safe-area-inset-bottom);
+      box-sizing:border-box;
+    }
+    header{
+      width:min(920px, 100%);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:10px 12px;
+      background:linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:12px;
+      box-sizing:border-box;
+    }
+    .title{font-weight:700; letter-spacing:.02em;}
+    .hint{font-size:12px; color:var(--muted); line-height:1.4;}
+    .hud{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .pill{
+      background:rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:999px;
+      padding:6px 10px;
+      font-size:12px;
+      color:var(--muted);
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .bar{
+      width:120px;
+      height:8px;
+      background:rgba(255,255,255,0.10);
+      border-radius:999px;
+      overflow:hidden;
+    }
+    .bar > i{
+      display:block; height:100%;
+      width:100%;
+      background:var(--good);
+    }
+    .bar.bad > i{ background:var(--bad); }
+
+    .stage{
+      width:min(920px, 100%);
+      background:var(--panel);
+      border:1px solid rgba(255,255,255,0.10);
+      border-radius:16px;
+      overflow:hidden;
+      position:relative;
+    }
+    canvas{ display:block; width:100%; height:auto; touch-action:none; }
+
+    .controls{
+      width:min(920px, 100%);
+      display:flex;
+      gap:10px;
+      justify-content:space-between;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+    .btnRow{
+      display:flex; gap:10px; align-items:center;
+    }
+    button{
+      appearance:none;
+      border:none;
+      background:rgba(255,255,255,0.08);
+      color:var(--text);
+      border:1px solid rgba(255,255,255,0.14);
+      border-radius:12px;
+      padding:12px 14px;
+      font-size:14px;
+      font-weight:700;
+    }
+    button:active{ transform: translateY(1px); }
+    .primary{ background:rgba(122,167,255,0.18); border-color: rgba(122,167,255,0.35); }
+    .danger{ background:rgba(255,90,106,0.16); border-color: rgba(255,90,106,0.35); }
+
+    .note{
+      width:min(920px, 100%);
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.6;
+      margin-bottom:6px;
+    }
+
+    /* モバイルでボタンを押しやすく */
+    @media (max-width:520px){
+      .bar{ width:92px; }
+      button{ padding:14px 14px; flex:1; }
+      .btnRow{ width:100%; }
+      .btnRow button{ flex:1; }
+    }
+
+    .overlay{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:rgba(0,0,0,0.45);
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .15s ease;
+    }
+    .overlay.show{ opacity:1; pointer-events:auto; }
+    .card{
+      width:min(520px, 92%);
+      background:rgba(20,20,35,0.92);
+      border:1px solid rgba(255,255,255,0.14);
+      border-radius:16px;
+      padding:16px;
+      box-shadow:0 12px 40px rgba(0,0,0,0.45);
+    }
+    .card h2{ margin:0 0 6px; font-size:18px; }
+    .card p{ margin:6px 0; color:var(--muted); font-size:13px; line-height:1.6; }
+    .card .row{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+    .card .row button{ flex:1; min-width:160px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">味方(a.png) vs 敵(b.png)</div>
+        <div class="hint">タップ/クリック＝攻撃　｜　左右ボタン＝移動　｜　敵弾に当たるとHP減少</div>
+      </div>
+      <div class="hud">
+        <div class="pill">
+          味方HP
+          <span class="bar" aria-label="player hp"><i id="hpP"></i></span>
+        </div>
+        <div class="pill">
+          敵HP
+          <span class="bar bad" aria-label="enemy hp"><i id="hpE"></i></span>
+        </div>
+        <div class="pill">Score <b id="score">0</b></div>
+      </div>
+    </header>
+
+    <div class="stage" id="stage">
+      <canvas id="cv"></canvas>
+
+      <div class="overlay" id="overlay">
+        <div class="card">
+          <h2 id="resultTitle">結果</h2>
+          <p id="resultText"></p>
+          <div class="row">
+            <button class="primary" id="restartBtn">もう一回</button>
+            <button id="closeBtn">閉じる</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="btnRow">
+        <button id="leftBtn">← 左</button>
+        <button id="rightBtn">右 →</button>
+      </div>
+      <div class="btnRow">
+        <button class="primary" id="shootBtn">攻撃（タップでもOK）</button>
+        <button class="danger" id="resetBtn">リセット</button>
+      </div>
+    </div>
+
+    <div class="note">
+      置き場所：<b>index.html / a.png / b.png</b> を同じフォルダに。<br/>
+      GitHub Pagesなら、リポジトリの <b>Settings → Pages</b> で Branch を <b>main</b> / Folder を <b>/(root)</b> にすると公開できます。
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('cv');
+  const stage  = document.getElementById('stage');
+  const ctx = canvas.getContext('2d');
+
+  const hpP = document.getElementById('hpP');
+  const hpE = document.getElementById('hpE');
+  const scoreEl = document.getElementById('score');
+
+  const overlay = document.getElementById('overlay');
+  const resultTitle = document.getElementById('resultTitle');
+  const resultText  = document.getElementById('resultText');
+  const restartBtn  = document.getElementById('restartBtn');
+  const closeBtn    = document.getElementById('closeBtn');
+
+  const leftBtn  = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+  const shootBtn = document.getElementById('shootBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  // 画像読み込み
+  const imgA = new Image(); imgA.src = 'a.png';
+  const imgB = new Image(); imgB.src = 'b.png';
+
+  // 物理/ゲーム設定
+  const WORLD = {
+    w: 900,
+    h: 520,
+    groundPad: 22
+  };
+
+  // 状態
+  let running = true;
+  let score = 0;
+
+  const player = {
+    x: 180, y: 0, w: 86, h: 86,
+    hp: 100, maxHp: 100,
+    speed: 420,
+    cooldown: 0
+  };
+
+  const enemy = {
+    x: 680, y: 0, w: 86, h: 86,
+    hp: 160, maxHp: 160,
+    vx: -120,
+    shotT: 0
+  };
+
+  const bulletsP = []; // 味方弾
+  const bulletsE = []; // 敵弾
+  const particles = [];
+
+  // 入力
+  const input = { left:false, right:false };
+
+  function fitCanvas(){
+    // 表示幅に合わせて、内部解像度は固定比率で
+    const rect = stage.getBoundingClientRect();
+    const cssW = rect.width;
+    const cssH = cssW * (WORLD.h / WORLD.w);
+
+    canvas.style.height = cssH + 'px';
+    canvas.width  = Math.floor(cssW * devicePixelRatio);
+    canvas.height = Math.floor(cssH * devicePixelRatio);
+
+    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  }
+
+  window.addEventListener('resize', fitCanvas, {passive:true});
+  fitCanvas();
+
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+  function rectHit(a,b){
+    return (a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y);
+  }
+
+  function shootFromPlayer(){
+    if (!running) return;
+    if (player.cooldown > 0) return;
+    player.cooldown = 0.18;
+
+    const bx = player.x + player.w - 4;
+    const by = player.y + player.h * 0.48;
+    bulletsP.push({ x:bx, y:by, r:6, vx:780, vy:(Math.random()*60-30) });
+
+    // 小さなエフェクト
+    for(let i=0;i<6;i++){
+      particles.push({
+        x: bx, y: by,
+        vx: 120 + Math.random()*240,
+        vy: (Math.random()*240-120),
+        life: 0.25 + Math.random()*0.25
+      });
+    }
+  }
+
+  function enemyShoot(){
+    const bx = enemy.x + 6;
+    const by = enemy.y + enemy.h * 0.55;
+    const aimY = player.y + player.h * 0.55;
+    const dy = aimY - by;
+    const dist = Math.max(1, Math.abs(dy));
+    const vy = clamp(dy / dist, -1, 1) * 260;
+
+    bulletsE.push({ x:bx, y:by, r:7, vx:-520, vy:vy });
+  }
+
+  // マウス/タッチ：画面タップで攻撃、ドラッグで移動も可能
+  let pointerDown = false;
+  let lastPX = 0;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    pointerDown = true;
+    lastPX = e.clientX;
+    // まず攻撃
+    shootFromPlayer();
+  }, {passive:true});
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!pointerDown) return;
+    const dx = e.clientX - lastPX;
+    lastPX = e.clientX;
+    // ドラッグ量に応じて移動
+    const scale = WORLD.w / stage.getBoundingClientRect().width;
+    player.x += dx * scale;
+  }, {passive:true});
+
+  window.addEventListener('pointerup', () => { pointerDown = false; }, {passive:true});
+
+  // ボタン入力（押している間移動）
+  function bindHold(btn, key){
+    const on = () => input[key] = true;
+    const off = () => input[key] = false;
+    btn.addEventListener('pointerdown', on, {passive:true});
+    btn.addEventListener('pointerup', off, {passive:true});
+    btn.addEventListener('pointercancel', off, {passive:true});
+    btn.addEventListener('pointerleave', off, {passive:true});
+  }
+  bindHold(leftBtn, 'left');
+  bindHold(rightBtn, 'right');
+
+  shootBtn.addEventListener('click', shootFromPlayer);
+  resetBtn.addEventListener('click', () => resetGame());
+
+  restartBtn.addEventListener('click', () => {
+    hideOverlay();
+    resetGame();
+  });
+  closeBtn.addEventListener('click', hideOverlay);
+
+  // キーボード（PC用）
+  window.addEventListener('keydown', (e)=>{
+    if (e.key === 'ArrowLeft') input.left = true;
+    if (e.key === 'ArrowRight') input.right = true;
+    if (e.key === ' ' || e.key === 'Enter') shootFromPlayer();
+  });
+  window.addEventListener('keyup', (e)=>{
+    if (e.key === 'ArrowLeft') input.left = false;
+    if (e.key === 'ArrowRight') input.right = false;
+  });
+
+  function resetGame(){
+    running = true;
+    score = 0;
+    scoreEl.textContent = String(score);
+
+    player.x = 180; player.hp = player.maxHp; player.cooldown = 0;
+    enemy.x  = 680; enemy.hp  = enemy.maxHp; enemy.vx = -120; enemy.shotT = 0;
+
+    bulletsP.length = 0;
+    bulletsE.length = 0;
+    particles.length = 0;
+
+    syncHud();
+  }
+
+  function syncHud(){
+    hpP.style.width = (player.hp / player.maxHp * 100).toFixed(1) + '%';
+    hpE.style.width = (enemy.hp  / enemy.maxHp  * 100).toFixed(1) + '%';
+    scoreEl.textContent = String(score);
+  }
+
+  function showOverlay(title, text){
+    resultTitle.textContent = title;
+    resultText.textContent  = text;
+    overlay.classList.add('show');
+  }
+  function hideOverlay(){
+    overlay.classList.remove('show');
+  }
+
+  function update(dt){
+    if (!running) return;
+
+    // クールダウン
+    player.cooldown = Math.max(0, player.cooldown - dt);
+
+    // 移動
+    let ax = 0;
+    if (input.left) ax -= 1;
+    if (input.right) ax += 1;
+
+    player.x += ax * player.speed * dt;
+    player.x = clamp(player.x, 20, WORLD.w - player.w - 20);
+
+    // 地面（見た目用のy固定）
+    player.y = WORLD.h - WORLD.groundPad - player.h;
+    enemy.y  = WORLD.h - WORLD.groundPad - enemy.h;
+
+    // 敵は左右にうろうろ
+    enemy.x += enemy.vx * dt;
+    if (enemy.x < WORLD.w*0.52) { enemy.x = WORLD.w*0.52; enemy.vx *= -1; }
+    if (enemy.x > WORLD.w - enemy.w - 20) { enemy.x = WORLD.w - enemy.w - 20; enemy.vx *= -1; }
+
+    // 敵の射撃（時間で）
+    enemy.shotT += dt;
+    const interval = (enemy.hp < enemy.maxHp*0.5) ? 0.65 : 0.9;
+    if (enemy.shotT >= interval){
+      enemy.shotT = 0;
+      enemyShoot();
+    }
+
+    // 弾の更新
+    for (let i=bulletsP.length-1;i>=0;i--){
+      const b = bulletsP[i];
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      if (b.x > WORLD.w + 30) bulletsP.splice(i,1);
+    }
+    for (let i=bulletsE.length-1;i>=0;i--){
+      const b = bulletsE[i];
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      if (b.x < -30) bulletsE.splice(i,1);
+    }
+
+    // パーティクル
+    for (let i=particles.length-1;i>=0;i--){
+      const p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.life -= dt;
+      if (p.life <= 0) particles.splice(i,1);
+    }
+
+    // 当たり判定（味方弾→敵）
+    const enemyRect = { x:enemy.x, y:enemy.y, w:enemy.w, h:enemy.h };
+    for (let i=bulletsP.length-1;i>=0;i--){
+      const b = bulletsP[i];
+      const br = { x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2 };
+      if (rectHit(br, enemyRect)){
+        bulletsP.splice(i,1);
+        enemy.hp = Math.max(0, enemy.hp - 10);
+        score += 10;
+        // ヒット演出
+        for(let k=0;k<10;k++){
+          particles.push({
+            x:b.x, y:b.y,
+            vx:(Math.random()*360-180),
+            vy:(Math.random()*360-180),
+            life:0.25+Math.random()*0.25
+          });
+        }
+      }
+    }
+
+    // 当たり判定（敵弾→味方）
+    const playerRect = { x:player.x, y:player.y, w:player.w, h:player.h };
+    for (let i=bulletsE.length-1;i>=0;i--){
+      const b = bulletsE[i];
+      const br = { x:b.x-b.r, y:b.y-b.r, w:b.r*2, h:b.r*2 };
+      if (rectHit(br, playerRect)){
+        bulletsE.splice(i,1);
+        player.hp = Math.max(0, player.hp - 14);
+        // 被弾演出
+        for(let k=0;k<14;k++){
+          particles.push({
+            x:b.x, y:b.y,
+            vx:(Math.random()*420-210),
+            vy:(Math.random()*420-210),
+            life:0.25+Math.random()*0.25
+          });
+        }
+      }
+    }
+
+    syncHud();
+
+    // 勝敗
+    if (enemy.hp <= 0){
+      running = false;
+      showOverlay('勝利！', `敵を倒しました。スコア：${score}`);
+    } else if (player.hp <= 0){
+      running = false;
+      showOverlay('敗北…', `やられました。スコア：${score}`);
+    }
+  }
+
+  function draw(){
+    // 仮想ワールド座標に合わせて描く
+    const rect = stage.getBoundingClientRect();
+    const scale = rect.width / WORLD.w;
+
+    ctx.clearRect(0,0, rect.width, rect.width*(WORLD.h/WORLD.w));
+
+    const W = WORLD.w, H = WORLD.h;
+
+    // 背景（簡易グラデ）
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0, 'rgba(255,255,255,0.04)');
+    g.addColorStop(1, 'rgba(0,0,0,0.00)');
+    ctx.save();
+    ctx.scale(scale, scale);
+    ctx.fillStyle = '#0d0d16';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // 地面ライン
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, H - WORLD.groundPad);
+    ctx.lineTo(W, H - WORLD.groundPad);
+    ctx.stroke();
+
+    // 弾
+    for (const b of bulletsP){
+      ctx.fillStyle = 'rgba(122,167,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+    for (const b of bulletsE){
+      ctx.fillStyle = 'rgba(255,90,106,0.95)';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // パーティクル
+    for (const p of particles){
+      const a = Math.max(0, Math.min(1, p.life / 0.5));
+      ctx.fillStyle = `rgba(255,255,255,${0.35*a})`;
+      ctx.fillRect(p.x, p.y, 2.2, 2.2);
+    }
+
+    // キャラ描画（画像が読み込み済みなら画像、未読込なら代替）
+    drawChar(imgA, player.x, player.y, player.w, player.h, '味方');
+    drawChar(imgB, enemy.x,  enemy.y,  enemy.w,  enemy.h,  '敵');
+
+    // 説明（小）
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '14px system-ui, -apple-system, "Noto Sans JP", sans-serif';
+    ctx.fillText('タップ/クリックで攻撃（弾発射）', 20, 34);
+
+    ctx.restore();
+  }
+
+  function drawChar(img, x,y,w,h,label){
+    if (img.complete && img.naturalWidth > 0){
+      ctx.drawImage(img, x, y, w, h);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(x,y,w,h);
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.font = '14px system-ui';
+      ctx.fillText(label, x+10, y+24);
+    }
+  }
+
+  // ループ
+  let last = performance.now();
+  function loop(t){
+    const dt = Math.min(0.033, (t - last) / 1000);
+    last = t;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // 初期化
+  resetGame();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
