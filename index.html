@@ -210,7 +210,7 @@
 
   <div class="note">
     同じフォルダに <b>index.html / a.png / b.png</b> を置いて開いてください。<br/>
-    背景画像を使うなら（任意）：<b>bg.jpg</b> を同フォルダへ。<br/>
+    背景画像を使うなら（任意）：<b>bg.png</b> を同フォルダへ。<br/>
     ランキングはこのブラウザに保存（localStorage）されます。
   </div>
 </div>
@@ -264,7 +264,7 @@ for (const el of zoomBlockEls) {
 
   // 背景画像（任意）
   const bgImg = new Image();
-  bgImg.src = 'bg.jpg';
+  bgImg.src = 'bg.png';
   let bgAvailable = false;
   bgImg.onload = () => { bgAvailable = true; };
   bgImg.onerror = () => { bgAvailable = false; };
